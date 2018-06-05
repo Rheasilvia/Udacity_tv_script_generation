@@ -62,7 +62,7 @@ print('\n'.join(text.split('\n')[view_sentence_range[0]:view_sentence_range[1]])
 # 
 # Return these dictionaries in the following tuple `(vocab_to_int, int_to_vocab)`
 
-# In[7]:
+# In[3]:
 
 
 import numpy as np
@@ -76,10 +76,9 @@ def create_lookup_tables(text):
     :return: A tuple of dicts (vocab_to_int, int_to_vocab)
     """
     # TODO: Implement Function
-    counts = Counter(text)
-    vocab = sorted(counts,key=counts.get,reverse=True)#按照数量倒序排列
-    vocab_to_int = {word:v for v,word in enumerate(vocab)}
-    int_to_vocab = {v:k for k,v in vocab_to_int.items()}
+    vocab = set(text)
+    vocab_to_int = {word:ii for ii,word in enumerate(vocab)}
+    int_to_vocab = {ii:word for ii,word in enumerate(vocab)}
     return (vocab_to_int,int_to_vocab)
 
 
@@ -106,7 +105,7 @@ tests.test_create_lookup_tables(create_lookup_tables)
 # 
 # This dictionary will be used to token the symbols and add the delimiter (space) around it.  This separates the symbols as it's own word, making it easier for the neural network to predict on the next word. Make sure you don't use a token that could be confused as a word. Instead of using the token "dash", try using something like "||dash||".
 
-# In[8]:
+# In[4]:
 
 
 def token_lookup():
@@ -135,7 +134,7 @@ tests.test_tokenize(token_lookup)
 # ## Preprocess all the data and save it
 # Running the code cell below will preprocess all the data and save it to file.
 
-# In[9]:
+# In[5]:
 
 
 """
@@ -148,7 +147,7 @@ helper.preprocess_and_save_data(data_dir, token_lookup, create_lookup_tables)
 # # Check Point
 # This is your first checkpoint. If you ever decide to come back to this notebook or have to restart the notebook, you can start from here. The preprocessed data has been saved to disk.
 
-# In[10]:
+# In[6]:
 
 
 """
@@ -172,7 +171,7 @@ int_text, vocab_to_int, int_to_vocab, token_dict = helper.load_preprocess()
 # 
 # ### Check the Version of TensorFlow and Access to GPU
 
-# In[11]:
+# In[7]:
 
 
 """
@@ -201,7 +200,7 @@ else:
 # 
 # Return the placeholders in the following tuple `(Input, Targets, LearningRate)`
 
-# In[33]:
+# In[8]:
 
 
 def get_inputs():
@@ -230,10 +229,10 @@ tests.test_get_inputs(get_inputs)
 # 
 # Return the cell and initial state in the following tuple `(Cell, InitialState)`
 
-# In[34]:
+# In[10]:
 
 
-def get_init_cell(batch_size, rnn_size):
+def get_init_cell(batch_size, rnn_size,n_layers=2):
     """
     Create an RNN Cell and initialize it.
     :param batch_size: Size of batches
@@ -241,11 +240,13 @@ def get_init_cell(batch_size, rnn_size):
     :return: Tuple (cell, initialize state)
     """
     # TODO: Implement Function
-    lstm = tf.contrib.rnn.BasicLSTMCell(rnn_size)
-    cell = tf.contrib.rnn.MultiRNNCell([lstm])
-    
+    def make_lstm(rnn_size):
+        return tf.contrib.rnn.BasicLSTMCell(rnn_size)
+    # Stack up multipe LSTM layers, for deep learning
+    cell = tf.contrib.rnn.MultiRNNCell([make_lstm(rnn_size) for _ in range(n_layers)])
+    # Getting an initial state of all zeros
     initial_state = cell.zero_state(batch_size, tf.float32)
-    initial_state = tf.identity(initial_state, name= "initial_state")
+    initial_state = tf.identity(initial_state, name= 'initial_state')
     return (cell, initial_state)
 
 
@@ -259,7 +260,7 @@ tests.test_get_init_cell(get_init_cell)
 # ### Word Embedding
 # Apply embedding to `input_data` using TensorFlow.  Return the embedded sequence.
 
-# In[35]:
+# In[11]:
 
 
 def get_embed(input_data, vocab_size, embed_dim):
@@ -288,7 +289,7 @@ tests.test_get_embed(get_embed)
 # 
 # Return the outputs and final_state state in the following tuple `(Outputs, FinalState)` 
 
-# In[36]:
+# In[12]:
 
 
 def build_rnn(cell, inputs):
@@ -320,7 +321,7 @@ tests.test_build_rnn(build_rnn)
 # 
 # Return the logits and final state in the following tuple (Logits, FinalState) 
 
-# In[37]:
+# In[13]:
 
 
 def build_nn(cell, rnn_size, input_data, vocab_size, embed_dim):
@@ -385,7 +386,7 @@ tests.test_build_nn(build_nn)
 # 
 # Notice that the last target value in the last batch is the first input value of the first batch. In this case, `1`. This is a common technique used when creating sequence batches, although it is rather unintuitive.
 
-# In[38]:
+# In[17]:
 
 
 def get_batches(int_text, batch_size, seq_length):
@@ -397,20 +398,14 @@ def get_batches(int_text, batch_size, seq_length):
     :return: Batches as a Numpy array
     """
     # TODO: Implement Function
-#     print(int_text)
-    count_batches = len(int_text) // (batch_size * seq_length)
-    int_text[count_batches * batch_size * seq_length] = int_text[0]
-    #print(int_text)
-    batches = np.zeros([count_batches, 2, batch_size, seq_length], dtype=np.int32)
-    for idx in range(0, len(int_text), seq_length):
-        batch_no = (idx // seq_length) % count_batches
-        batch_idx = idx // (seq_length * count_batches)
-        if (batch_idx == batch_size):
-            break
-        batches[batch_no, 0, batch_idx, ] = int_text[idx:idx + seq_length]
-        batches[batch_no, 1, batch_idx, ] = int_text[idx + 1:idx + seq_length + 1]
-    return batches
-    return None
+    n_batches = int(len(int_text) / (batch_size * seq_length))
+    # Drop the last few characters to make only full batches
+    xdata = np.array(int_text[: n_batches * batch_size * seq_length])
+    ydata = np.array(int_text[1: n_batches * batch_size * seq_length + 1])
+    ydata[-1] = xdata[0] # 如果要通过unittest，可以加上此句
+    x_batches = np.split(xdata.reshape(batch_size, -1), n_batches, 1)
+    y_batches = np.split(ydata.reshape(batch_size, -1), n_batches, 1)
+    return np.array(list(zip(x_batches, y_batches)))
 
 
 """
@@ -431,21 +426,21 @@ tests.test_get_batches(get_batches)
 # - Set `learning_rate` to the learning rate.
 # - Set `show_every_n_batches` to the number of batches the neural network should print progress.
 
-# In[48]:
+# In[27]:
 
 
 # Number of Epochs
-num_epochs = 108
+num_epochs = 200
 # Batch Size
 batch_size = 128
 # RNN Size
 rnn_size = 256
 # Embedding Dimension Size
-embed_dim = 3000
+embed_dim = 100
 # Sequence Length
-seq_length = 50
+seq_length = 12
 # Learning Rate
-learning_rate = .01
+learning_rate = .001
 # Show stats for every n number of batches
 show_every_n_batches = 10
 
@@ -458,7 +453,7 @@ save_dir = './save'
 # ### Build the Graph
 # Build the graph using the neural network you implemented.
 
-# In[49]:
+# In[28]:
 
 
 """
@@ -495,7 +490,7 @@ with train_graph.as_default():
 # ## Train
 # Train the neural network on the preprocessed data.  If you have a hard time getting a good loss, check the [forums](https://discussions.udacity.com/) to see if anyone is having the same problem.
 
-# In[50]:
+# In[29]:
 
 
 """
@@ -534,7 +529,7 @@ with tf.Session(graph=train_graph) as sess:
 # ## Save Parameters
 # Save `seq_length` and `save_dir` for generating a new TV script.
 
-# In[51]:
+# In[30]:
 
 
 """
@@ -546,7 +541,7 @@ helper.save_params((seq_length, save_dir))
 
 # # Checkpoint
 
-# In[52]:
+# In[31]:
 
 
 """
@@ -571,7 +566,7 @@ seq_length, load_dir = helper.load_params()
 # 
 # Return the tensors in the following tuple `(InputTensor, InitialStateTensor, FinalStateTensor, ProbsTensor)` 
 
-# In[55]:
+# In[32]:
 
 
 def get_tensors(loaded_graph):
@@ -598,7 +593,7 @@ tests.test_get_tensors(get_tensors)
 # ### Choose Word
 # Implement the `pick_word()` function to select the next word using `probabilities`.
 
-# In[59]:
+# In[35]:
 
 
 def pick_word(probabilities, int_to_vocab):
@@ -609,11 +604,7 @@ def pick_word(probabilities, int_to_vocab):
     :return: String of the predicted word
     """
     # TODO: Implement Function
-    max_prob = 0
-    for idx,info in enumerate(probabilities):
-        if info > probabilities[max_prob]:
-            max_prob = idx
-    return  int_to_vocab[max_prob]
+    return np.random.choice(list(int_to_vocab.values()), 1, p=probabilities)[0]
 
 
 """
@@ -625,7 +616,7 @@ tests.test_pick_word(pick_word)
 # ## Generate TV Script
 # This will generate the TV script for you.  Set `gen_length` to the length of TV script you want to generate.
 
-# In[60]:
+# In[36]:
 
 
 gen_length = 200
